@@ -22,11 +22,101 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Susun Struktur Proyek Android & Gradle
+        run: |
+          mkdir -p app/src/main/java/com/scalp
+          mkdir -p app/src/main/aidl/com/scalp
+
+          # Pindahkan file RAW ke folder standar Android (jika belum tersusun)
+          find . -maxdepth 3 -name "*.kt" ! -path "./app/*" -exec cp {} app/src/main/java/com/scalp/ \;
+          find . -maxdepth 3 -name "*.aidl" ! -path "./app/*" -exec cp {} app/src/main/aidl/com/scalp/ \;
+          if [ -f "AndroidManifest.xml" ]; then cp AndroidManifest.xml app/src/main/AndroidManifest.xml; fi
+
+          # Buat settings.gradle.kts
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "ScalpShizuku"
+          include(":app")
+          EOF
+
+          # Buat root build.gradle.kts
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.5.0" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+
+          # Buat gradle.properties
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          # Buat app/build.gradle.kts dengan semua dependensi (Shizuku, ML Kit, Jsoup, Coroutines)
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.scalp"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.scalp"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildFeatures {
+                  aidl = true
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("dev.rikka.shizuku:api:13.1.5")
+              implementation("dev.rikka.shizuku:provider:13.1.5")
+              implementation("com.google.mlkit:text-recognition:16.0.1")
+              implementation("org.jsoup:jsoup:1.18.1")
+          }
+          EOF
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
