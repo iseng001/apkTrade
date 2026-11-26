@@ -24,30 +24,12 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
-      - name: Install Gradle 8.7
+      - name: Siapkan Konfigurasi Gradle (Jika Belum Ada)
         run: |
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d "$HOME"
-          echo "$HOME/gradle-8.7/bin" >> "$GITHUB_PATH"
-          rm /tmp/gradle.zip
-
-      - name: Susun Struktur Proyek Android & Gradle
-        run: |
-          echo "=== Daftar File di Repo ==="
-          find . -maxdepth 3 -not -path '*/.*'
-
-          mkdir -p app/src/main/java/com/scalp
-          mkdir -p app/src/main/aidl/com/scalp
-
-          find . -maxdepth 3 -name "*.kt" ! -path "./app/*" -exec cp {} app/src/main/java/com/scalp/ \;
-          find . -maxdepth 3 -name "*.aidl" ! -path "./app/*" -exec cp {} app/src/main/aidl/com/scalp/ \;
-
-          if [ ! -f "app/src/main/AndroidManifest.xml" ]; then
-            MANIFEST=$(find . -maxdepth 3 -name "AndroidManifest.xml" ! -path "./app/*" | head -n 1)
-            if [ -n "$MANIFEST" ]; then cp "$MANIFEST" app/src/main/AndroidManifest.xml; fi
-          fi
-
-          cat << 'EOF' > settings.gradle.kts
+          ls -la
+          if [ ! -f "app/build.gradle.kts" ] && [ ! -f "app/build.gradle" ]; then
+            echo "File Gradle tidak ditemukan, membuat konfigurasi Compose + OkHttp + Shizuku..."
+            cat << 'EOF' > settings.gradle.kts
           pluginManagement {
               repositories {
                   google()
@@ -66,31 +48,31 @@ jobs:
           include(":app")
           EOF
 
-          cat << 'EOF' > build.gradle.kts
+            cat << 'EOF' > build.gradle.kts
           plugins {
               id("com.android.application") version "8.5.0" apply false
               id("org.jetbrains.kotlin.android") version "1.9.24" apply false
           }
           EOF
 
-          cat << 'EOF' > gradle.properties
+            cat << 'EOF' > gradle.properties
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           kotlin.code.style=official
           EOF
 
-          cat << 'EOF' > app/build.gradle.kts
+            cat << 'EOF' > app/build.gradle.kts
           plugins {
               id("com.android.application")
               id("org.jetbrains.kotlin.android")
           }
 
           android {
-              namespace = "com.scalp"
+              namespace = "com.example"
               compileSdk = 34
 
               defaultConfig {
-                  applicationId = "com.scalp"
+                  applicationId = "com.example"
                   minSdk = 26
                   targetSdk = 34
                   versionCode = 1
@@ -98,7 +80,12 @@ jobs:
               }
 
               buildFeatures {
+                  compose = true
                   aidl = true
+              }
+
+              composeOptions {
+                  kotlinCompilerExtensionVersion = "1.5.14"
               }
 
               compileOptions {
@@ -113,19 +100,47 @@ jobs:
           dependencies {
               implementation("androidx.core:core-ktx:1.13.1")
               implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.activity:activity-compose:1.9.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+              implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+              implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("com.squareup.okhttp3:okhttp:4.12.0")
               implementation("dev.rikka.shizuku:api:13.1.5")
               implementation("dev.rikka.shizuku:provider:13.1.5")
               implementation("com.google.mlkit:text-recognition:16.0.1")
               implementation("org.jsoup:jsoup:1.18.1")
           }
           EOF
+          else
+            echo "Menggunakan file Gradle asli dari repositori."
+          fi
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --stacktrace
+          else
+            GRADLE_VER="8.9"
+            if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+              DETECTED=$(grep -oE 'gradle-[0-9]+\.[0-9]+(\.[0-9]+)?' gradle/wrapper/gradle-wrapper.properties | head -n 1 | sed 's/gradle-//')
+              if [ -n "$DETECTED" ]; then GRADLE_VER="$DETECTED"; fi
+            fi
+            echo "Mengunduh Gradle $GRADLE_VER..."
+            curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VER}-bin.zip" -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d "$HOME"
+            "$HOME/gradle-${GRADLE_VER}/bin/gradle" assembleDebug --stacktrace
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ScalpShizuku-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
